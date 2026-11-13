@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="FACTIONFARTER_FART" header="FACTIONFARTER">
+        FactionFarter_PerformFart()
+    </Binding>
+</Bindings>
