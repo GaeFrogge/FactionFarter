@@ -1,17 +1,13 @@
 local active = false
 
-local panel = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate, BackdropTemplate")
-panel:SetSize(345, 126)
+local panel = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+panel:SetSize(345, 151)
 panel:SetPoint("CENTER")
 panel:SetFrameStrata("DIALOG")
 panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
 panel:SetBackdropColor(0.07, 0.07, 0.09, 0.95)
 panel:EnableMouse(true)
 panel:Hide()
-panel:SetAttribute("_onstate-combat", [[
-    if newstate == "combat" then self:Hide() end
-]])
-RegisterStateDriver(panel, "combat", "[combat] combat; peace")
 
 local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 heading:SetPoint("TOP", 0, -12)
@@ -45,19 +41,117 @@ titleBar:SetScript("OnDragStart", function()
 end)
 titleBar:SetScript("OnDragStop", stopMoving)
 panel:HookScript("OnHide", stopMoving)
-local counters = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-counters:SetPoint("TOP", 0, -36)
-local status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("TOP", 0, -98)
+local tallyPage = CreateFrame("Frame", nil, panel)
+tallyPage:SetAllPoints(panel)
+local counters = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+counters:SetPoint("TOP", 0, -62)
+local status = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+status:SetPoint("TOP", 0, -124)
 
 local function readable(value)
     return not issecretvalue or not issecretvalue(value)
 end
 
+local entries, byName, baseline = {}, {}, 0
+local valid = false
+local function key(name)
+    return name:lower():gsub("%s+", " ")
+end
+
+local function hash(data)
+    local value = 5381
+    for i = 1, #data do value = (value * 33 + data:byte(i)) % 2147483647 end
+    return value
+end
+
+local function saveLedger()
+    local fields = { tostring(baseline) }
+    local db = FactionFarterDB
+    fields[2], fields[3] = db.ledgerOwner, db.ledgerFaction
+    for _, row in ipairs(entries) do
+        for i = 1, 5 do fields[#fields + 1] = row[i] end
+    end
+    for i, field in ipairs(fields) do
+        fields[i] = (field:gsub(".", function(c) return ("%02x"):format(c:byte()) end))
+    end
+    local data = table.concat(fields, ":")
+    db.ledger = { version = 1, data = data, checksum = hash(data) }
+end
+
+local function loadLedger(db)
+    if db.ledger then
+        local envelope = db.ledger
+        if type(envelope) ~= "table" or envelope.version ~= 1 or type(envelope.data) ~= "string"
+            or hash(envelope.data) ~= envelope.checksum then return false end
+        local fields = {}
+        for field in (envelope.data .. ":"):gmatch("([^:]*):") do
+            if #field % 2 ~= 0 or field:find("[^%x]") then return false end
+            fields[#fields + 1] = (field:gsub("%x%x", function(pair) return string.char(tonumber(pair, 16)) end))
+        end
+        local score = tonumber(fields[1])
+        if not score or score < 0 or score % 1 ~= 0 or #fields < 3 or (#fields - 3) % 5 ~= 0 then return false end
+        local loaded, index = {}, {}
+        for i = 4, #fields, 5 do
+            local name = key(fields[i])
+            if name == "" or index[name] or (fields[i+2] ~= "" and not tonumber(fields[i+2])) then return false end
+            loaded[#loaded + 1] = { unpack(fields, i, i + 4) }
+            index[name] = true
+        end
+        entries, byName, baseline = loaded, index, score
+        db.ledgerOwner, db.ledgerFaction = fields[2], fields[3]
+        return true
+    end
+    baseline = tonumber(db.lifetime) or 0
+    if baseline < 0 or baseline % 1 ~= 0 then return false end
+    local function migrate(name)
+        if type(name) ~= "string" or name == "" or byName[key(name)] then return end
+        entries[#entries + 1] = { name, "", "", "", "" }
+        byName[key(name)] = true
+    end
+    for name in pairs(db.legacyNames or {}) do migrate(name) end
+    for _, name in ipairs(db.history or {}) do migrate(name) end
+    local first, last = UnitName("player")
+    db.ledgerOwner = first and last and last ~= "" and (first .. " " .. last) or first or ""
+    db.ledgerFaction = UnitFactionGroup("player") or ""
+    saveLedger()
+    return true
+end
+
+SLASH_FACTIONFARTERSYNCPREVIEW1 = "/ffsyncpreview"
+SlashCmdList.FACTIONFARTERSYNCPREVIEW = function()
+    if not valid then return end
+    local db = FactionFarterDB
+    print(("name=%q faction=%q"):format(db.ledgerOwner, db.ledgerFaction))
+    -- Ledger rows are append-only. Their indices are stable within this character's save.
+    for id, row in ipairs(entries) do
+        if row[3] ~= "" then
+            print(("id=%d zone=%q time=%s"):format(id, row[4], row[3]))
+        end
+    end
+end
+
+local function tally()
+    local total = baseline
+    for _, entry in ipairs(entries) do
+        if entry[3] ~= "" then total = total + 1 end
+    end
+    return total
+end
+
+local function targetPrompt()
+    local faction = UnitFactionGroup("player")
+    if readable(faction) then
+        if faction == "Horde" then return "Please select an Alliance player." end
+        if faction == "Alliance" then return "Please select a Horde player." end
+    end
+    return "Please select an opposing-faction player."
+end
+
 local function updateTotal()
+    if not valid then counters:SetText("Saved tally needs recovery"); return end
     local faction = UnitFactionGroup("player")
     local opposite = readable(faction) and ({ Horde = "Alliance", Alliance = "Horde" })[faction]
-    counters:SetFormattedText("%s members farted on: %d", opposite or "Opposite-faction", FactionFarterDB.lifetime)
+    counters:SetFormattedText("%s members farted on: %d", opposite or "Opposite-faction", tally())
 end
 
 local function candidate(unit)
@@ -68,46 +162,46 @@ local function candidate(unit)
     if (faction ~= "Alliance" and faction ~= "Horde") or not ownFaction or faction == ownFaction then return end
     local guid = UnitGUID(unit)
     local first, last = UnitName(unit)
-    if not readable(guid) or not readable(first) or not readable(last) then return end
-    if not guid or not first then return end
+    if not readable(first) or not readable(last) then return end
+    if type(first) ~= "string" or first == "" then return end
     local name = last and last ~= "" and (first .. " " .. last) or first
-    return guid, name
+    return readable(guid) and guid or nil, name, faction
 end
 
-local targetPortrait = panel:CreateTexture(nil, "ARTWORK")
+local targetPortrait = tallyPage:CreateTexture(nil, "ARTWORK")
 targetPortrait:SetSize(32, 32)
-targetPortrait:SetPoint("TOPLEFT", 12, -56)
+targetPortrait:SetPoint("TOPLEFT", 12, -82)
 targetPortrait:Hide()
 
-local targetLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-targetLabel:SetPoint("TOPLEFT", 52, -66)
+local targetLabel = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+targetLabel:SetPoint("TOPLEFT", 52, -92)
 targetLabel:SetWidth(180)
 targetLabel:SetJustifyH("LEFT")
 
-local fart = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+local fart = CreateFrame("Button", nil, tallyPage, "UIPanelButtonTemplate")
 fart:SetSize(90, 24)
-fart:SetPoint("TOPRIGHT", -12, -60)
+fart:SetPoint("TOPRIGHT", -12, -86)
 fart:SetText("Fart")
 
 local function alreadyRecorded(guid, name)
     local db = FactionFarterDB
-    return db.recordedPlayers[guid] or db.legacyNames[name]
+    return byName[key(name)] or (db.recordedPlayers and db.recordedPlayers[guid])
 end
 
 local function refresh()
-    if InCombatLockdown() or not panel:IsShown() then return end
+    if not panel:IsShown() then return end
     local guid, name = candidate("target")
-    targetLabel:SetText(name or "Target an opposite-faction player")
-    if guid then SetPortraitTexture(targetPortrait, "target") end
-    targetPortrait:SetShown(guid ~= nil)
-    local recorded = guid and alreadyRecorded(guid, name)
-    fart:SetEnabled(guid ~= nil)
+    targetLabel:SetText(name or targetPrompt())
+    if name then SetPortraitTexture(targetPortrait, "target") end
+    targetPortrait:SetShown(name ~= nil)
+    local recorded = name and alreadyRecorded(guid, name)
+    fart:SetEnabled(name ~= nil or InCombatLockdown())
     fart:SetText(recorded and "Fart Again" or "Fart")
     updateTotal()
 end
 
 local settings = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-settings:SetSize(390, 388)
+settings:SetSize(390, 342)
 settings:SetPoint("CENTER")
 settings:SetFrameStrata("DIALOG")
 settings:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
@@ -150,7 +244,7 @@ section("Sound", -43)
 section("Incoming popup", -140)
 local dataTitle = settings:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 dataTitle:SetPoint("TOP", 0, -278)
-dataTitle:SetText("Character data")
+dataTitle:SetText("Notifications")
 
 local soundNames = { "Wet Fart", "Quick Fart", "Long Fart" }
 
@@ -339,23 +433,6 @@ colorSwatch:SetPoint("TOP", -(colorLabel:GetStringWidth() + 8) / 2, -230)
 
 settingsButton("Test popup", 110, 257, -165, function() showNotification() end)
 
-StaticPopupDialogs.FACTION_FARTER_RESET = {
-    text = "Reset your tally and forget all previously counted players for this character?",
-    button1 = "Reset", button2 = "Cancel",
-    timeout = 0, hideOnEscape = true, whileDead = true,
-    OnAccept = function()
-        local db = FactionFarterDB
-        db.lifetime = 0
-        db.recordedPlayers, db.legacyNames = {}, {}
-        refresh()
-    end,
-}
-local resetData = settingsButton("Reset tally and history", 175, 18, -329, function()
-    StaticPopup_Show("FACTION_FARTER_RESET")
-end)
-resetData:ClearAllPoints()
-resetData:SetPoint("TOP", 0, -338)
-
 local partyAlerts = CreateFrame("CheckButton", nil, settings, "UICheckButtonTemplate")
 
 local partyLabel = partyAlerts:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -382,27 +459,104 @@ local factionMessages = {
     },
 }
 
+local historyPanel = CreateFrame("Frame", nil, panel)
+historyPanel:SetPoint("TOPLEFT", 0, -60)
+historyPanel:SetPoint("BOTTOMRIGHT")
+historyPanel:Hide()
+
+local historyTitle = historyPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+historyTitle:SetPoint("TOP", 0, -10)
+local scroll = CreateFrame("ScrollFrame", nil, historyPanel, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", 12, -32)
+scroll:SetPoint("BOTTOMRIGHT", -30, 12)
+local list = CreateFrame("Frame", nil, scroll)
+list:SetSize(290, 1)
+scroll:SetScrollChild(list)
+local rows = {}
+
+local function refreshHistory()
+    if not historyPanel:IsVisible() then return end
+    historyTitle:SetText(not valid and "History unavailable" or (#entries == 0 and "No recorded players yet" or "History"))
+    if not valid then return end
+    for position = 1, #entries do
+        local row = rows[position]
+        if not row then
+            row = CreateFrame("Button", nil, list)
+            row:SetSize(290, 22)
+            row:SetPoint("TOPLEFT", 0, -(position - 1) * 22)
+            row:SetNormalFontObject(GameFontHighlight)
+            row:SetScript("OnEnter", function(self)
+                local name, faction, stamp, zone, subzone = unpack(self.entry)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(name)
+                if stamp == "" then
+                    GameTooltip:AddLine("Details were not recorded.")
+                else
+                    GameTooltip:AddLine(faction)
+                    GameTooltip:AddLine(date("%Y-%m-%d %H:%M", tonumber(stamp)))
+                    if zone ~= "" then GameTooltip:AddLine(zone) end
+                    if subzone ~= "" and subzone ~= zone then GameTooltip:AddLine(subzone) end
+                end
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            rows[position] = row
+        end
+        row.entry = entries[#entries - position + 1]
+        row:SetText(row.entry[1])
+    end
+    list:SetHeight(math.max(1, #entries * 22))
+end
+
+historyPanel:SetScript("OnShow", refreshHistory)
+local function createTab(label, offset)
+    local tab = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    tab:SetSize(84, 22)
+    tab:SetPoint("TOP", offset, -33)
+    tab:SetText(label)
+    return tab
+end
+
+local tallyTab = createTab("Tally", -45)
+local historyTab = createTab("History", 45)
+
+local function selectPage(showHistory)
+    panel:SetHeight(showHistory and 340 or 151)
+    tallyPage:SetShown(not showHistory)
+    historyPanel:SetShown(showHistory)
+    tallyTab:SetEnabled(showHistory)
+    historyTab:SetEnabled(not showHistory)
+end
+
+tallyTab:SetScript("OnClick", function() selectPage(false) end)
+historyTab:SetScript("OnClick", function() selectPage(true) end)
+selectPage(false)
+
 function FactionFarter_PerformFart()
-    if not FactionFarterDB or InCombatLockdown() then return end
-    local guid, name = candidate("target")
-    if not guid then
+    if not FactionFarterDB then return end
+    local guid, name, targetFaction = candidate("target")
+    local targetExists = UnitExists("target")
+    if not name and (not InCombatLockdown() or (readable(targetExists) and not targetExists)) then
+        UIErrorsFrame:AddMessage(targetPrompt(), 1, 0.25, 0.25)
         refresh()
         return
     end
     local ok = pcall(DoEmote, "fart")
     if ok then
-        if not alreadyRecorded(guid, name) then
-            local db = FactionFarterDB
-            db.recordedPlayers[guid] = true
-            db.lifetime = db.lifetime + 1
+        if name and valid and not alreadyRecorded(guid, name) then
+            byName[key(name)] = true
+            entries[#entries + 1] = { name, targetFaction, tostring(GetServerTime()), GetRealZoneText() or "", GetSubZoneText() or "" }
+            saveLedger()
+            refreshHistory()
         end
         refresh()
         local style = selectedSound()
         playFartSound(style)
-        sendSignal(signalPrefix, guid, name, style)
-        if IsInGroup() and not IsInRaid() then
+        if guid and name then sendSignal(signalPrefix, guid, name, style) end
+        local source = UnitGUID("player")
+        if guid and name and readable(source) and source and IsInGroup() and not IsInRaid() then
             local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
-            pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("party:%s:%s:%s"):format(UnitGUID("player"), guid, name), channel)
+            pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("party:%s:%s:%s"):format(source, guid, name), channel)
         end
         local faction = UnitFactionGroup("player")
         local messages = readable(faction) and factionMessages[faction]
@@ -419,7 +573,7 @@ SLASH_FACTIONFARTERFART1 = "/fffart"
 SlashCmdList.FACTIONFARTERFART = FactionFarter_PerformFart
 
 local function toggle()
-    if not FactionFarterDB or InCombatLockdown() then return end
+    if not FactionFarterDB then return end
     active = not active
     if active then
         status:SetText("")
@@ -565,6 +719,7 @@ events:RegisterEvent("PLAYER_TARGET_CHANGED")
 events:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 events:RegisterEvent("CHAT_MSG_ADDON")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("UPDATE_BINDINGS")
 events:SetScript("OnEvent", function(self, event, addon, message, channel, sender)
@@ -586,14 +741,8 @@ events:SetScript("OnEvent", function(self, event, addon, message, channel, sende
             panel:ClearAllPoints()
             panel:SetPoint("CENTER", UIParent, "CENTER", db.windowX, db.windowY)
         end
-        if not db.recordedPlayers then
-            db.recordedPlayers = {}
-            db.legacyNames = {}
-            for _, name in ipairs(db.history or {}) do
-                db.legacyNames[name] = true
-            end
-        end
-        db.history, db.daily, db.day = nil, nil, nil
+        valid = loadLedger(db)
+        if not valid then print("Faction Farter: Saved data failed validation and was preserved.") end
         placeMinimapButton(FactionFarterDB.minimapAngle or math.pi / 4)
         C_ChatInfo.RegisterAddonMessagePrefix(signalPrefix)
         local addFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
@@ -614,3 +763,6 @@ events:SetScript("OnEvent", function(self, event, addon, message, channel, sende
     end
     refresh()
 end)
+
+
+
