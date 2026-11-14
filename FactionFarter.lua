@@ -415,6 +415,9 @@ function FactionFarter_PerformFart()
 end
 fart:SetScript("OnClick", FactionFarter_PerformFart)
 
+SLASH_FACTIONFARTERFART1 = "/fffart"
+SlashCmdList.FACTIONFARTERFART = FactionFarter_PerformFart
+
 local function toggle()
     if not FactionFarterDB or InCombatLockdown() then return end
     active = not active
