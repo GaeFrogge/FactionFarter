@@ -283,28 +283,6 @@ soundChoice:SetupMenu(function(_, root)
 end)
 settingsButton("Preview", 88, 249, -65, function() playFartSound() end)
 
-local pendingDeliveryErrors = {}
-local function filterDeliveryError(_, _, message)
-    if not readable(message) then return false end
-    local pending = pendingDeliveryErrors[message]
-    if not pending then return false end
-    return GetTime() <= pending
-end
-
-local function sendSignal(prefix, guid, name, style)
-    if ERR_CHAT_PLAYER_NOT_FOUND_S then
-        local errorText = ERR_CHAT_PLAYER_NOT_FOUND_S:format(name)
-        local expires = GetTime() + 3
-        pendingDeliveryErrors[errorText] = expires
-        C_Timer.After(3, function()
-            if pendingDeliveryErrors[errorText] == expires then
-                pendingDeliveryErrors[errorText] = nil
-            end
-        end)
-    end
-    pcall(C_ChatInfo.SendAddonMessage, prefix, ("fart:%s:%d"):format(guid, style), "WHISPER", name)
-end
-
 local signalPrefix = "FactionFarter"
 local notification = CreateFrame("Frame", nil, UIParent)
 notification:SetSize(420, 48)
@@ -552,11 +530,12 @@ function FactionFarter_PerformFart()
         refresh()
         local style = selectedSound()
         playFartSound(style)
-        if guid and name then sendSignal(signalPrefix, guid, name, style) end
         local source = UnitGUID("player")
         if guid and name and readable(source) and source and IsInGroup() and not IsInRaid() then
             local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
             pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("party:%s:%s:%s"):format(source, guid, name), channel)
+            -- Keep the original text packet readable by older clients.
+            pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("partySound:%s:%s:%d"):format(source, guid, style), channel)
         end
         local faction = UnitFactionGroup("player")
         local messages = readable(faction) and factionMessages[faction]
@@ -668,35 +647,184 @@ local function receiveSignal(prefix, message, channel, sender)
         local ownGUID = UnitGUID("player")
         if name and readable(ownGUID) and ownGUID and source ~= ownGUID and target ~= ownGUID then
             showNotification(sender, nil, name)
-        end
-        return
-    end
-    if readable(prefix) and readable(message) and readable(channel)
-        and prefix == signalPrefix and channel == "WHISPER" then
-        local guid = UnitGUID("player")
-        if not readable(guid) or not guid or type(message) ~= "string" then return end
-        if message == "fart:" .. guid then
-            showNotification(sender)
             return
         end
-        local recipient, sound = message:match("^fart:([^:]+):(%d)$")
+        local soundSource, soundTarget, sound = message:match("^partySound:([^:]+):([^:]+):(%d)$")
         local style = tonumber(sound)
-        if recipient == guid and style and soundNames[style] then
-            showNotification(sender, style)
+        if style and soundNames[style] and readable(ownGUID) and ownGUID
+            and soundSource ~= ownGUID and soundTarget ~= ownGUID then
+            playFartSound(style)
         end
     end
 end
 
+local function receiveFartEmote(message, sender)
+    if not FactionFarterDB or not readable(message) or type(message) ~= "string" then return end
+    local line = message:gsub("|H[^|]+|h(.-)|h", "%1"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local name = line:match("^(.+) brushes up against you and farts loudly[%.!]?$")
+        or line:match("^(.+) farted on you[%.!]?$")
+        or line:match("^(.+) farts on you[%.!]?$")
+    if not name then return end
+    if readable(sender) and type(sender) == "string" and sender ~= "" then name = sender end
+    showNotification(name, 1)
+end
+
+local historyExport = CreateFrame("Frame", "FactionFarterHistoryExport", UIParent, "BackdropTemplate")
+historyExport:SetSize(640, 310)
+historyExport:SetPoint("CENTER")
+historyExport:SetFrameStrata("DIALOG")
+historyExport:SetClampedToScreen(true)
+historyExport:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background" })
+historyExport:Hide()
+local exportTitle = historyExport:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+exportTitle:SetPoint("TOPLEFT", 14, -14)
+exportTitle:SetText("Faction Farter History (Ctrl+C to copy)")
+local exportClose = CreateFrame("Button", nil, historyExport, "UIPanelCloseButton")
+exportClose:SetPoint("TOPRIGHT")
+exportClose:SetScript("OnClick", function() historyExport:Hide() end)
+local exportScroll = CreateFrame("ScrollFrame", nil, historyExport, "UIPanelScrollFrameTemplate")
+exportScroll:SetPoint("TOPLEFT", 14, -36)
+exportScroll:SetPoint("BOTTOMRIGHT", -32, 14)
+local exportText = CreateFrame("EditBox", nil, exportScroll)
+exportText:SetWidth(590)
+exportText:SetMultiLine(true)
+exportText:SetAutoFocus(false)
+exportText:SetFontObject(ChatFontNormal)
+exportText:SetScript("OnEscapePressed", function() historyExport:Hide() end)
+historyExport:SetScript("OnHide", function() exportText:ClearFocus() end)
+exportScroll:SetScrollChild(exportText)
+local exportMeasure = historyExport:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
+exportMeasure:Hide()
+local function exportWidth(value)
+    exportMeasure:SetText(value)
+    return exportMeasure:GetStringWidth()
+end
+
+SLASH_FACTIONFARTERHISTORY1 = "/ffhistory"
+SlashCmdList.FACTIONFARTERHISTORY = function(input)
+    if not valid then print("Faction Farter: History unavailable."); return end
+    input = strtrim(input or "")
+    local count = input == "" and 25 or tonumber(input:match("^%d+$"))
+    if not count or count < 1 then print("Usage: /ffhistory [1-25]"); return end
+    local rows = { { "Target", "Date and time", "Zone", "Subzone" } }
+    for index = #entries, math.max(1, #entries - math.min(count, 25) + 1), -1 do
+        local row = entries[index]
+        local stamp = tonumber(row[3])
+        rows[#rows + 1] = { row[1], stamp and date("%Y-%m-%d %H:%M", stamp) or "", row[4], row[5] }
+    end
+    if #rows == 1 then print("Faction Farter: No recorded players yet."); return end
+    historyExport:Show()
+    local widths = { 0, 0, 0 }
+    local space = math.max(1, exportWidth("x x") - exportWidth("xx"))
+    local preview = {}
+    for _, row in ipairs(rows) do
+        for column = 1, 3 do
+            widths[column] = math.max(widths[column], exportWidth(row[column]))
+        end
+    end
+    for index, row in ipairs(rows) do
+        local fields = {}
+        for column = 1, 3 do
+            local padding = 3 + math.floor((widths[column] - exportWidth(row[column])) / space + 0.5)
+            fields[column] = row[column] .. string.rep(" ", padding)
+        end
+        fields[4] = row[4]
+        preview[index] = table.concat(fields)
+    end
+    exportText:SetText(table.concat(preview, "\n"))
+    exportScroll:SetVerticalScroll(0)
+    exportText:SetFocus()
+    exportText:HighlightText()
+end
+
+local statsChannels = { party = "PARTY", guild = "GUILD", say = "SAY" }
+local statsMeasure = UIParent:CreateFontString()
+statsMeasure:Hide()
+
+SLASH_FACTIONFARTERSTATS1 = "/ffstats"
+SlashCmdList.FACTIONFARTERSTATS = function(input)
+    if not valid then print("Faction Farter: Stats unavailable."); return end
+    local mode = strtrim(input or ""):lower()
+    local channel = statsChannels[mode]
+    if not channel and mode ~= "" and mode ~= "echo" then
+        print("Usage: /ffstats [echo|party|guild|say]")
+        return
+    end
+    if mode == "party" then
+        if not IsInGroup() then print("Faction Farter: Join a party first."); return end
+        if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then channel = "INSTANCE_CHAT" end
+    elseif mode == "guild" and not IsInGuild() then
+        print("Faction Farter: Join a guild first.")
+        return
+    end
+
+    local counts, zones = {}, {}
+    for _, row in ipairs(entries) do
+        local zone = row[4]
+        if zone ~= "" then
+            if not counts[zone] then zones[#zones + 1] = zone end
+            counts[zone] = (counts[zone] or 0) + 1
+        end
+    end
+    table.sort(zones, function(a, b)
+        if counts[a] == counts[b] then return a < b end
+        return counts[a] > counts[b]
+    end)
+    local owner = FactionFarterDB.ledgerOwner
+    if owner == "" then owner = "Current character" end
+    local rows = { { owner }, { "Total farted on", tostring(tally()) }, { "" }, { "TOP ZONES" } }
+    local summary = {}
+    for index = 1, math.min(3, #zones) do
+        local zone = zones[index]
+        rows[#rows + 1] = { index .. ". " .. zone, tostring(counts[zone]) }
+        summary[#summary + 1] = ("%s (%d)"):format(zone, counts[zone])
+    end
+    if #summary == 0 then rows[#rows + 1] = { "No zones recorded" } end
+    if channel then
+        local line = ("Faction Farter - %s: %d total"):format(owner, tally())
+        if #summary > 0 then line = line .. " - Top zones: " .. table.concat(summary, ", ") end
+        local ok = pcall(C_ChatInfo.SendChatMessage, line, channel)
+        if not ok then print("Faction Farter: Could not post stats to " .. mode .. ".") end
+        return
+    end
+
+    statsMeasure:SetFont(DEFAULT_CHAT_FRAME:GetFont())
+    local function widthOf(value)
+        statsMeasure:SetText((value:gsub("|", "||")))
+        return statsMeasure:GetStringWidth()
+    end
+    local title = "FACTION FARTER"
+    local space = math.max(1, widthOf("| |") - widthOf("||"))
+    local function pad(width)
+        return string.rep(" ", math.max(0, math.floor(width / space + 0.5)))
+    end
+    local dash = math.max(1, widthOf("--") - widthOf("-"))
+    local width = widthOf("+" .. string.rep("-", 32) .. "+")
+    for _, row in ipairs(rows) do
+        width = math.max(width, widthOf("| " .. row[1] .. "  " .. (row[2] or "") .. " |"))
+    end
+    local border = "+" .. string.rep("-", math.ceil((width - widthOf("++")) / dash)) .. "+"
+    width = widthOf(border)
+    local titlePadding = (width - widthOf("|" .. title .. "|")) / 2
+    print(border)
+    print("||" .. pad(titlePadding) .. title .. pad(titlePadding) .. "||")
+    print(border)
+    for _, row in ipairs(rows) do
+        local value = row[2] or ""
+        local padding = width - widthOf("| " .. row[1] .. value .. " |")
+        print("|| " .. row[1] .. pad(padding) .. value .. " ||")
+    end
+    print(border)
+end
+
 SLASH_FACTIONFARTERMOCK1 = "/ffmock"
 SlashCmdList.FACTIONFARTERMOCK = function(input)
-    local guid = UnitGUID("player")
-    if not readable(guid) or not guid then return end
     local sender = strtrim(input or "")
     if sender == "" then
         local _, targetName = candidate("target")
         sender = targetName or "Test Sender"
     end
-    receiveSignal(signalPrefix, ("fart:%s:%d"):format(guid, selectedSound()), "WHISPER", sender)
+    showNotification(sender, selectedSound())
 end
 
 BINDING_HEADER_FACTIONFARTER = "Faction Farter"
@@ -718,6 +846,7 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_TARGET_CHANGED")
 events:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 events:RegisterEvent("CHAT_MSG_ADDON")
+events:RegisterEvent("CHAT_MSG_TEXT_EMOTE")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_LOGIN")
@@ -745,11 +874,12 @@ events:SetScript("OnEvent", function(self, event, addon, message, channel, sende
         if not valid then print("Faction Farter: Saved data failed validation and was preserved.") end
         placeMinimapButton(FactionFarterDB.minimapAngle or math.pi / 4)
         C_ChatInfo.RegisterAddonMessagePrefix(signalPrefix)
-        local addFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
-        if addFilter then addFilter("CHAT_MSG_SYSTEM", filterDeliveryError) end
         self:UnregisterEvent(event)
     elseif event == "CHAT_MSG_ADDON" then
         receiveSignal(addon, message, channel, sender)
+        return
+    elseif event == "CHAT_MSG_TEXT_EMOTE" then
+        receiveFartEmote(addon, message)
         return
     elseif event == "UNIT_PORTRAIT_UPDATE" then
         if addon ~= "target" then return end
