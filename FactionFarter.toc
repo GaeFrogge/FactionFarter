@@ -1,4 +1,5 @@
 ## Interface: 16001
 ## Title: Faction Farter
 ## SavedVariablesPerCharacter: FactionFarterDB
+Farticles.lua
 FactionFarter.lua

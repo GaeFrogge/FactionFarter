@@ -4,6 +4,15 @@ A standalone addon for World of Warcraft: Forever. Fart on opposing-faction play
 
 ## Changelog
 
+### v0.5
+
+- Added farticles! Outgoing farts and incoming directed fart emotes play separately configured Cloud or Jet effects at a user-placed screen origin.
+- Added independent style selection, colour pickers, size, opacity, and duration controls for outgoing and incoming graphics. Drag each slider fully left for Random. Duration supports up to 8 seconds.
+- Added Move origin, Reset origin, Preview outgoing, and Preview incoming controls. The origin and graphics settings save per character.
+- Redesigned Settings with Audio, Notifications, and Graphics pages, flat buttons, the addon logo, and a saved draggable window position.
+- Redesigned the compact main window with matching Fart and History navigation.
+- Added adjustable notification text size and updated the minimap button to use the addon logo.
+- Farticles respect Show farticles independently of Mute fart sounds. Effects use the placed screen origin and are visible to the local player.
 ### v0.4
 
 - Replaced direct addon whispers with native fart emote detection. When someone farts on you, the addon shows their name and portrait when available and plays a default sound. This works outside your party.

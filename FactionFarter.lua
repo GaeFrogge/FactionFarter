@@ -1,7 +1,36 @@
+local _, addon = ...
+
+local function flatButton(parent, label, width, height)
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    button:SetSize(width, height)
+    button:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1,
+    })
+    button:SetBackdropBorderColor(0.3, 0.31, 0.35, 1)
+    local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("CENTER")
+    button:SetFontString(text)
+    button:SetText(label)
+    local function paint()
+        local selected = button.selected
+        button:SetBackdropColor(selected and 0.22 or 0.12, selected and 0.27 or 0.13, selected and 0.13 or 0.16, 1)
+        text:SetTextColor(selected and 0.85 or 0.9, selected and 1 or 0.9, selected and 0.45 or 0.92)
+    end
+    button:SetScript("OnEnter", function()
+        button:SetBackdropBorderColor(0.65, 0.8, 0.35, 1)
+    end)
+    button:SetScript("OnLeave", function()
+        button:SetBackdropBorderColor(0.3, 0.31, 0.35, 1)
+    end)
+    button.paint = paint
+    paint()
+    return button
+end
 local active = false
 
 local panel = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-panel:SetSize(345, 151)
+panel:SetSize(355, 175)
 panel:SetPoint("CENTER")
 panel:SetFrameStrata("DIALOG")
 panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
@@ -10,14 +39,29 @@ panel:EnableMouse(true)
 panel:Hide()
 
 local heading = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-heading:SetPoint("TOP", 0, -12)
+heading:SetPoint("TOP", 32, -13)
 heading:SetText("Faction Farter")
+local panelLogo = panel:CreateTexture(nil, "ARTWORK")
+panelLogo:SetSize(28, 28)
+panelLogo:SetPoint("TOPLEFT", 9, -7)
+panelLogo:SetTexture("Interface\\AddOns\\FactionFarter\\Media\\Logo.tga")
+local panelRule = panel:CreateTexture(nil, "BORDER")
+panelRule:SetColorTexture(0.25, 0.26, 0.29, 1)
+panelRule:SetPoint("TOPLEFT", 82, -43)
+panelRule:SetPoint("BOTTOMLEFT", 82, 9)
+panelRule:SetWidth(1)
+local panelClose = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+panelClose:SetPoint("TOPRIGHT")
+panelClose:SetScript("OnClick", function()
+    active = false
+    panel:Hide()
+end)
 panel:SetMovable(true)
 panel:SetClampedToScreen(true)
 local titleBar = CreateFrame("Frame", nil, panel)
 titleBar:SetPoint("TOPLEFT")
-titleBar:SetPoint("TOPRIGHT")
-titleBar:SetHeight(33)
+titleBar:SetPoint("TOPRIGHT", -32, 0)
+titleBar:SetHeight(36)
 titleBar:EnableMouse(true)
 titleBar:RegisterForDrag("LeftButton")
 
@@ -42,11 +86,14 @@ end)
 titleBar:SetScript("OnDragStop", stopMoving)
 panel:HookScript("OnHide", stopMoving)
 local tallyPage = CreateFrame("Frame", nil, panel)
-tallyPage:SetAllPoints(panel)
-local counters = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-counters:SetPoint("TOP", 0, -62)
+tallyPage:SetPoint("TOPLEFT", 92, -43)
+tallyPage:SetPoint("BOTTOMRIGHT", -10, 9)
+local counters = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+counters:SetPoint("TOP", 0, -3)
+counters:SetWidth(250)
 local status = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("TOP", 0, -124)
+status:SetPoint("TOP", 0, -105)
+status:SetWidth(250)
 
 local function readable(value)
     return not issecretvalue or not issecretvalue(value)
@@ -169,19 +216,20 @@ local function candidate(unit)
 end
 
 local targetPortrait = tallyPage:CreateTexture(nil, "ARTWORK")
-targetPortrait:SetSize(32, 32)
-targetPortrait:SetPoint("TOPLEFT", 12, -82)
+targetPortrait:SetSize(24, 24)
+targetPortrait:SetPoint("TOPLEFT", 2, -33)
 targetPortrait:Hide()
 
-local targetLabel = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-targetLabel:SetPoint("TOPLEFT", 52, -92)
-targetLabel:SetWidth(180)
-targetLabel:SetJustifyH("LEFT")
+local targetLabel = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+targetLabel:SetPoint("TOP", 10, -39)
+targetLabel:SetWidth(222)
+targetLabel:SetJustifyH("CENTER")
 
-local fart = CreateFrame("Button", nil, tallyPage, "UIPanelButtonTemplate")
-fart:SetSize(90, 24)
-fart:SetPoint("TOPRIGHT", -12, -86)
-fart:SetText("Fart")
+local fart = flatButton(tallyPage, "Fart", 150, 30)
+fart:SetPoint("TOP", 0, -67)
+fart:GetFontString():SetFontObject(GameFontNormal)
+fart:HookScript("OnDisable", function(self) self:SetAlpha(0.45) end)
+fart:HookScript("OnEnable", function(self) self:SetAlpha(1) end)
 
 local function alreadyRecorded(guid, name)
     local db = FactionFarterDB
@@ -201,50 +249,95 @@ local function refresh()
 end
 
 local settings = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-settings:SetSize(390, 342)
+settings:SetSize(760, 490)
 settings:SetPoint("CENTER")
 settings:SetFrameStrata("DIALOG")
 settings:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
 settings:SetBackdropColor(0.07, 0.07, 0.09, 0.98)
 settings:EnableMouse(true)
 settings:Hide()
+settings:SetMovable(true)
+settings:SetClampedToScreen(true)
+local settingsBar = CreateFrame("Frame", nil, settings)
+settingsBar:SetPoint("TOPLEFT")
+settingsBar:SetPoint("TOPRIGHT", -32, 0)
+settingsBar:SetHeight(70)
+settingsBar:EnableMouse(true)
+settingsBar:RegisterForDrag("LeftButton")
+local function saveSettingsPosition()
+    settings:StopMovingOrSizing()
+    local x, y = settings:GetCenter()
+    local cx, cy = UIParent:GetCenter()
+    if FactionFarterDB and x and y and cx and cy then
+        FactionFarterDB.settingsX, FactionFarterDB.settingsY = x - cx, y - cy
+    end
+end
+settingsBar:SetScript("OnDragStart", function() settings:StartMoving() end)
+settingsBar:SetScript("OnDragStop", saveSettingsPosition)
+settings:HookScript("OnHide", saveSettingsPosition)
 local settingsTitle = settings:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-settingsTitle:SetPoint("TOP", 0, -14)
+settingsTitle:SetPoint("TOP", 70, -26)
 settingsTitle:SetText("Faction Farter Settings")
+local settingsLogo = settings:CreateTexture(nil, "ARTWORK")
+settingsLogo:SetSize(52, 52)
+settingsLogo:SetPoint("TOPLEFT", 15, -10)
+settingsLogo:SetTexture("Interface\\AddOns\\FactionFarter\\Media\\Logo.tga")
+local sidebarRule = settings:CreateTexture(nil, "BORDER")
+sidebarRule:SetColorTexture(0.25, 0.26, 0.29, 1)
+sidebarRule:SetPoint("TOPLEFT", 160, -76)
+sidebarRule:SetPoint("BOTTOMLEFT", 160, 18)
+sidebarRule:SetWidth(1)
+
+local settingsPages, settingsTabs = {}, {}
+for index, name in ipairs({ "Audio", "Notifications", "Graphics" }) do
+    local page = CreateFrame("Frame", nil, settings)
+    page:SetPoint("TOPLEFT", 182, -80)
+    page:SetPoint("BOTTOMRIGHT", -22, 20)
+    page:Hide()
+    settingsPages[index] = page
+    local tab = flatButton(settings, name, 136, 34)
+    tab:SetPoint("TOPLEFT", 12, -86 - (index - 1) * 44)
+    settingsTabs[index] = tab
+    tab:SetScript("OnClick", function()
+        for other, content in ipairs(settingsPages) do
+            content:SetShown(other == index)
+            settingsTabs[other].selected = other == index
+            settingsTabs[other].paint()
+        end
+    end)
+end
+settingsPages[1]:Show()
+settingsTabs[1].selected = true
+settingsTabs[1].paint()
+local settingsContent = settingsPages[1]
 local close = CreateFrame("Button", nil, settings, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT")
 close:SetScript("OnClick", function() settings:Hide() end)
 
 local function settingsButton(label, width, x, y, onClick)
-    local button = CreateFrame("Button", nil, settings, "UIPanelButtonTemplate")
-    button:SetSize(width, 24)
+    local button = flatButton(settingsContent, label, width, 26)
     button:SetPoint("TOPLEFT", x, y)
-    button:SetText(label)
     button:SetScript("OnClick", onClick)
     return button
 end
 
-local mute = CreateFrame("CheckButton", nil, settings, "UICheckButtonTemplate")
+local mute = CreateFrame("CheckButton", nil, settingsContent, "UICheckButtonTemplate")
 
 local muteText = mute:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 muteText:SetPoint("LEFT", mute, "RIGHT", 2, 0)
 muteText:SetText("Mute fart sounds")
-mute:SetPoint("TOP", -(muteText:GetStringWidth() + 2) / 2, -100)
+mute:SetPoint("TOP", -(muteText:GetStringWidth() + 2) / 2, -135)
 
 mute:SetScript("OnClick", function(self)
     FactionFarterDB.soundMuted = self:GetChecked() and true or false
 end)
 
 local function section(label, y)
-    local title = settings:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local title = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", 0, y)
     title:SetText(label)
 end
-section("Sound", -43)
-section("Incoming popup", -140)
-local dataTitle = settings:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-dataTitle:SetPoint("TOP", 0, -278)
-dataTitle:SetText("Notifications")
+section("Fart sound", -12)
 
 local soundNames = { "Wet Fart", "Quick Fart", "Long Fart" }
 
@@ -262,9 +355,9 @@ local function playFartSound(style)
     end
 end
 
-local soundChoice = CreateFrame("DropdownButton", nil, settings, "WowStyle1DropdownTemplate")
-soundChoice:SetPoint("TOPLEFT", 53, -65)
-soundChoice:SetSize(187, 24)
+local soundChoice = CreateFrame("DropdownButton", nil, settingsContent, "WowStyle1DropdownTemplate")
+soundChoice:SetPoint("TOP", -54, -80)
+soundChoice:SetSize(220, 26)
 soundChoice:SetupMenu(function(_, root)
     local db = FactionFarterDB
     if not db then return end
@@ -281,7 +374,11 @@ soundChoice:SetupMenu(function(_, root)
     end
     root:CreateRadio("Random each time", isSelected, selectSound, 0)
 end)
-settingsButton("Preview", 88, 249, -65, function() playFartSound() end)
+local soundPreview = settingsButton("Preview", 100, 0, 0, function() playFartSound() end)
+soundPreview:ClearAllPoints()
+soundPreview:SetPoint("LEFT", soundChoice, "RIGHT", 12, 0)
+settingsContent = settingsPages[2]
+section("Incoming popup and party alerts", -12)
 
 local signalPrefix = "FactionFarter"
 local notification = CreateFrame("Frame", nil, UIParent)
@@ -363,7 +460,7 @@ notification:SetScript("OnDragStop", function(self)
 end)
 
 local moveAlert
-moveAlert = settingsButton("Move popup", 110, 23, -165, function()
+moveAlert = settingsButton("Move popup", 120, 86, -86, function()
     placingAlert = not placingAlert
     if notificationTimer then notificationTimer:Cancel(); notificationTimer = nil end
     notification:EnableMouse(placingAlert)
@@ -379,14 +476,42 @@ settings:HookScript("OnHide", function()
         moveAlert:SetText("Move popup")
     end
 end)
-settingsButton("Reset position", 110, 140, -165, function()
+settingsButton("Reset position", 120, 218, -86, function()
     FactionFarterDB.alertX, FactionFarterDB.alertY = nil, nil
     notification:ClearAllPoints()
     notification:SetPoint("TOP", UIParent, "TOP", 0, -150)
 end)
-colorPreview = settings:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-colorPreview:SetPoint("TOP", 0, -204)
+colorPreview = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+colorPreview:SetPoint("TOP", 0, -145)
 colorPreview:SetText("You got farted on!")
+
+local popupFont, popupDefaultSize, popupFontFlags = notificationText:GetFont()
+local function applyPopupFontSize(size)
+    notificationText:SetFont(popupFont, size, popupFontFlags)
+    colorPreview:SetFont(popupFont, size, popupFontFlags)
+    notification:SetHeight(math.max(48, size + 20))
+end
+local popupSize = CreateFrame("Slider", nil, settingsContent, "OptionsSliderTemplate")
+popupSize:SetSize(300, 16)
+popupSize:SetPoint("TOP", 0, -239)
+popupSize:SetMinMaxValues(12, 32)
+popupSize:SetValueStep(1)
+popupSize:SetObeyStepOnDrag(true)
+popupSize.Low:SetText("")
+popupSize.High:SetText("")
+popupSize.Text:SetText("")
+local popupSizeLabel = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+popupSizeLabel:SetPoint("RIGHT", popupSize, "LEFT", -12, 0)
+popupSizeLabel:SetText("Text size")
+local popupSizeValue = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+popupSizeValue:SetPoint("LEFT", popupSize, "RIGHT", 14, 0)
+popupSize:SetScript("OnValueChanged", function(_, value)
+    local size = math.floor(value + 0.5)
+    if not FactionFarterDB then return end
+    FactionFarterDB.alertFontSize = size
+    popupSizeValue:SetText(size)
+    applyPopupFontSize(size)
+end)
 
 local colorSwatch = settingsButton("", 32, 18, -230, function()
     local color = FactionFarterDB.alertColor
@@ -403,22 +528,137 @@ end)
 swatchFill = colorSwatch:CreateTexture(nil, "ARTWORK")
 swatchFill:SetPoint("TOPLEFT", 5, -5)
 swatchFill:SetPoint("BOTTOMRIGHT", -5, 5)
-local colorLabel = settings:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+local colorLabel = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 colorLabel:SetPoint("LEFT", colorSwatch, "RIGHT", 8, 0)
 colorLabel:SetText("Popup text color")
 colorSwatch:ClearAllPoints()
-colorSwatch:SetPoint("TOP", -(colorLabel:GetStringWidth() + 8) / 2, -230)
+colorSwatch:SetPoint("TOP", -(colorLabel:GetStringWidth() + 8) / 2, -185)
 
-settingsButton("Test popup", 110, 257, -165, function() showNotification() end)
+settingsButton("Test popup", 120, 350, -86, function() showNotification() end)
 
-local partyAlerts = CreateFrame("CheckButton", nil, settings, "UICheckButtonTemplate")
+local partyAlerts = CreateFrame("CheckButton", nil, settingsContent, "UICheckButtonTemplate")
 
 local partyLabel = partyAlerts:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 partyLabel:SetPoint("LEFT", partyAlerts, "RIGHT", 4, 0)
 partyLabel:SetText("Show party alerts")
-partyAlerts:SetPoint("TOP", -(partyLabel:GetStringWidth() + 4) / 2, -299)
+partyAlerts:SetPoint("TOP", -(partyLabel:GetStringWidth() + 4) / 2, -292)
 partyAlerts:SetScript("OnClick", function(self)
     FactionFarterDB.partyAlerts = not not self:GetChecked()
+end)
+
+settingsContent = settingsPages[3]
+local graphicsControls = {}
+local graphicsEnabled = CreateFrame("CheckButton", nil, settingsContent, "UICheckButtonTemplate")
+graphicsEnabled:SetPoint("TOP", -60, 0)
+local graphicsLabel = graphicsEnabled:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+graphicsLabel:SetPoint("LEFT", graphicsEnabled, "RIGHT", 4, 0)
+graphicsLabel:SetText("Show farticles")
+graphicsEnabled:SetScript("OnClick", function(self)
+    FactionFarterDB.graphics.enabled = not not self:GetChecked()
+end)
+
+local function effectSettings(kind, title, y)
+    local label = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", 4, y - 6)
+    label:SetText(title)
+    local dropdown = CreateFrame("DropdownButton", nil, settingsContent, "WowStyle1DropdownTemplate")
+    dropdown:SetSize(190, 26)
+    dropdown:SetPoint("TOPLEFT", 160, y)
+    dropdown:SetupMenu(function(_, root)
+        local effect = FactionFarterDB.graphics[kind]
+        for _, style in ipairs({ "cloud", "jet" }) do
+            root:CreateRadio(style == "cloud" and "Classic gas cloud" or "Classic gas jet",
+                function() return effect.style == style end,
+                function() effect.style = style end)
+        end
+    end)
+    local function refreshColor()
+        local color = FactionFarterDB.graphics[kind].color
+        graphicsControls[kind].fill:SetColorTexture(color[1], color[2], color[3], 1)
+    end
+    local swatch = settingsButton("Colour", 88, 360, y, function()
+        local effect = FactionFarterDB.graphics[kind]
+        local original = { unpack(effect.color) }
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = original[1], g = original[2], b = original[3],
+            swatchFunc = function()
+                effect.color = { ColorPickerFrame:GetColorRGB() }
+                refreshColor()
+            end,
+            cancelFunc = function()
+                effect.color = original
+                refreshColor()
+            end,
+        })
+    end)
+    local fill = swatch:CreateTexture(nil, "OVERLAY")
+    fill:SetSize(12, 12)
+    fill:SetPoint("RIGHT", -5, 0)
+    graphicsControls[kind] = { dropdown = dropdown, fill = fill, sliders = {} }
+    settingsButton("Reset", 90, 458, y, function()
+        FactionFarterDB.graphics[kind].color = { 0.3, 0.8, 0.15 }
+        refreshColor()
+    end)
+    for index, spec in ipairs({
+        { "size", "Size", 0, 200, 10, "%" },
+        { "opacity", "Opacity", 0, 100, 5, "%" },
+        { "duration", "Duration", 0, 8, 0.5, "s" },
+    }) do
+        local slider = CreateFrame("Slider", nil, settingsContent, "OptionsSliderTemplate")
+        slider:SetSize(370, 16)
+        slider:SetPoint("TOPLEFT", 82, y - 45 - (index - 1) * 34)
+        slider:SetMinMaxValues(spec[3], spec[4])
+        slider:SetValueStep(spec[5])
+        slider:SetObeyStepOnDrag(true)
+        slider.Low:SetText("")
+        slider.High:SetText("")
+        slider.Text:SetText("")
+        local sliderLabel = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        sliderLabel:SetPoint("LEFT", settingsContent, "TOPLEFT", 18, y - 53 - (index - 1) * 34)
+        sliderLabel:SetWidth(60)
+        sliderLabel:SetJustifyH("LEFT")
+        sliderLabel:SetText(spec[2])
+        local sliderValue = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        sliderValue:SetPoint("LEFT", slider, "RIGHT", 16, 0)
+        slider:SetScript("OnValueChanged", function(_, value)
+            local rounded = math.floor(value / spec[5] + 0.5) * spec[5]
+            if FactionFarterDB then FactionFarterDB.graphics[kind][spec[1]] = rounded end
+            local displayValue = spec[1] == "size" and rounded / 2 or rounded
+            sliderValue:SetText(rounded == 0 and "Random" or displayValue .. spec[6])
+        end)
+        graphicsControls[kind].sliders[spec[1]] = slider
+    end
+end
+effectSettings("jet", "Fart — outgoing", -52)
+effectSettings("cloud", "Farted on — incoming", -224)
+
+local movingFarticleAnchor = false
+local moveFarticleAnchor
+moveFarticleAnchor = settingsButton("Move origin", 110, 43, -365, function()
+    movingFarticleAnchor = not movingFarticleAnchor
+    addon.SetFarticleAnchorEditing(movingFarticleAnchor)
+    moveFarticleAnchor:SetText(movingFarticleAnchor and "Done moving" or "Move origin")
+end)
+settingsButton("Reset origin", 110, 163, -365, addon.ResetFarticleAnchor)
+settingsButton("Preview outgoing", 110, 283, -365, function() addon.PreviewFarticle("jet") end)
+settingsButton("Preview incoming", 110, 403, -365, function() addon.PreviewFarticle("cloud") end)
+settingsPages[3]:HookScript("OnHide", function()
+    addon.SetFarticleAnchorEditing(false)
+    movingFarticleAnchor = false
+    moveFarticleAnchor:SetText("Move origin")
+end)
+
+settings:SetScript("OnShow", function()
+    if not FactionFarterDB then return end
+    local db = FactionFarterDB
+    popupSize:SetValue(db.alertFontSize)
+    graphicsEnabled:SetChecked(db.graphics.enabled)
+    for kind, controls in pairs(graphicsControls) do
+        local effect = db.graphics[kind]
+        controls.dropdown:GenerateMenu()
+        controls.fill:SetColorTexture(effect.color[1], effect.color[2], effect.color[3], 1)
+        for field, slider in pairs(controls.sliders) do slider:SetValue(effect[field]) end
+    end
 end)
 
 local factionEmotes = { Horde = "forthehorde", Alliance = "forthealliance" }
@@ -438,8 +678,8 @@ local factionMessages = {
 }
 
 local historyPanel = CreateFrame("Frame", nil, panel)
-historyPanel:SetPoint("TOPLEFT", 0, -60)
-historyPanel:SetPoint("BOTTOMRIGHT")
+historyPanel:SetPoint("TOPLEFT", 92, -43)
+historyPanel:SetPoint("BOTTOMRIGHT", -10, 9)
 historyPanel:Hide()
 
 local historyTitle = historyPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -448,7 +688,7 @@ local scroll = CreateFrame("ScrollFrame", nil, historyPanel, "UIPanelScrollFrame
 scroll:SetPoint("TOPLEFT", 12, -32)
 scroll:SetPoint("BOTTOMRIGHT", -30, 12)
 local list = CreateFrame("Frame", nil, scroll)
-list:SetSize(290, 1)
+list:SetSize(210, 1)
 scroll:SetScrollChild(list)
 local rows = {}
 
@@ -460,7 +700,7 @@ local function refreshHistory()
         local row = rows[position]
         if not row then
             row = CreateFrame("Button", nil, list)
-            row:SetSize(290, 22)
+            row:SetSize(210, 22)
             row:SetPoint("TOPLEFT", 0, -(position - 1) * 22)
             row:SetNormalFontObject(GameFontHighlight)
             row:SetScript("OnEnter", function(self)
@@ -487,23 +727,22 @@ local function refreshHistory()
 end
 
 historyPanel:SetScript("OnShow", refreshHistory)
-local function createTab(label, offset)
-    local tab = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    tab:SetSize(84, 22)
-    tab:SetPoint("TOP", offset, -33)
-    tab:SetText(label)
+local function createTab(label, y)
+    local tab = flatButton(panel, label, 66, 26)
+    tab:SetPoint("TOPLEFT", 8, y)
     return tab
 end
 
-local tallyTab = createTab("Tally", -45)
-local historyTab = createTab("History", 45)
+local tallyTab = createTab("Fart", -49)
+local historyTab = createTab("History", -83)
 
 local function selectPage(showHistory)
-    panel:SetHeight(showHistory and 340 or 151)
     tallyPage:SetShown(not showHistory)
     historyPanel:SetShown(showHistory)
-    tallyTab:SetEnabled(showHistory)
-    historyTab:SetEnabled(not showHistory)
+    tallyTab.selected = not showHistory
+    historyTab.selected = showHistory
+    tallyTab.paint()
+    historyTab.paint()
 end
 
 tallyTab:SetScript("OnClick", function() selectPage(false) end)
@@ -530,6 +769,7 @@ function FactionFarter_PerformFart()
         refresh()
         local style = selectedSound()
         playFartSound(style)
+        addon.PlayFarticle("jet")
         local source = UnitGUID("player")
         if guid and name and readable(source) and source and IsInGroup() and not IsInRaid() then
             local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
@@ -568,9 +808,9 @@ local minimap = CreateFrame("Button", "FactionFarterMinimapButton", Minimap)
 minimap:SetSize(31, 31)
 minimap:SetFrameLevel(Minimap:GetFrameLevel() + 8)
 local icon = minimap:CreateTexture(nil, "ARTWORK")
-icon:SetSize(19, 19)
-icon:SetPoint("CENTER", minimap, "CENTER", 1, 0.5)
-icon:SetTexture("Interface\\Icons\\Spell_Nature_AbolishMagic")
+icon:SetSize(19.19, 19.19)
+icon:SetPoint("CENTER", minimap, "CENTER", 1, -1)
+icon:SetTexture("Interface\\AddOns\\FactionFarter\\Media\\Logo.tga")
 icon:SetVertexColor(0.64, 1, 0.16)
 icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 icon:AddMaskTexture((function()
@@ -667,6 +907,7 @@ local function receiveFartEmote(message, sender)
     if not name then return end
     if readable(sender) and type(sender) == "string" and sender ~= "" then name = sender end
     showNotification(name, 1)
+    addon.PlayFarticle("cloud")
 end
 
 local historyExport = CreateFrame("Frame", "FactionFarterHistoryExport", UIParent, "BackdropTemplate")
@@ -856,9 +1097,26 @@ events:SetScript("OnEvent", function(self, event, addon, message, channel, sende
         if addon ~= "FactionFarter" then return end
         FactionFarterDB = FactionFarterDB or { lifetime = 0 }
         local db = FactionFarterDB
+        db.graphics = db.graphics or {}
+        if db.graphics.enabled == nil then db.graphics.enabled = true end
+        for _, kind in ipairs({ "jet", "cloud" }) do
+            local effect = db.graphics[kind] or {}
+            db.graphics[kind] = effect
+            if effect.style ~= "jet" and effect.style ~= "cloud" then effect.style = "cloud" end
+            effect.color = effect.color or { 0.3, 0.8, 0.15 }
+            effect.size = effect.size or 100
+            effect.opacity = effect.opacity or 65
+            effect.duration = effect.duration or 2
+        end
+        if db.settingsX and db.settingsY then
+            settings:ClearAllPoints()
+            settings:SetPoint("CENTER", UIParent, "CENTER", db.settingsX, db.settingsY)
+        end
         db.soundStyle = db.soundStyle or 1
         soundChoice:GenerateMenu()
         db.alertColor = db.alertColor or { 1, 0.82, 0 }
+        db.alertFontSize = math.max(12, math.min(32, tonumber(db.alertFontSize) or popupDefaultSize))
+        applyPopupFontSize(db.alertFontSize)
         applyAlertColor()
         if db.alertX and db.alertY then
             notification:ClearAllPoints()
