@@ -1,6 +1,6 @@
 Faction Farter audio credits
 
-All three recordings are released under CC0 1.0.
+All seven recordings are released under CC0 1.0.
 https://creativecommons.org/publicdomain/zero/1.0/
 
 Wet Fart by james.luib
@@ -12,5 +12,20 @@ https://freesound.org/people/C-V/sounds/506994/
 Long Fart (Fart (real)) by shaundoogan
 https://freesound.org/people/shaundoogan/sounds/465486/
 
+Squeaky Fart (FART 2.mp3) by smokevhstapes
+https://freesound.org/people/smokevhstapes/sounds/190484/
+
+Duty Time (wet fart) by florianreichelt
+https://freesound.org/people/florianreichelt/sounds/448212/
+
+Deep Fart (Fart 1) by Breviceps
+https://freesound.org/people/Breviceps/sounds/445998/
+
+Shart failure (Long Wet Fart) by SoundGod77
+https://freesound.org/people/SoundGod77/sounds/405902/
+
 The recordings were converted to mono MP3 and adjusted for in-game playback.
+Duty Time uses the 1.00-2.05 second portion, with short edge fades.
+The shart clip plays once on failure and is balanced approximately 3 dB
+below the average level of the selectable clips. It is excluded from Random.
 

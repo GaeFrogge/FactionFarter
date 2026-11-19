@@ -30,7 +30,7 @@ end
 local active = false
 
 local panel = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-panel:SetSize(355, 175)
+panel:SetSize(355, 215)
 panel:SetPoint("CENTER")
 panel:SetFrameStrata("DIALOG")
 panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
@@ -92,7 +92,7 @@ local counters = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 counters:SetPoint("TOP", 0, -3)
 counters:SetWidth(250)
 local status = tallyPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-status:SetPoint("TOP", 0, -105)
+status:SetPoint("TOP", 0, -151)
 status:SetWidth(250)
 
 local function readable(value)
@@ -185,6 +185,32 @@ local function tally()
     return total
 end
 
+local function isRiskBonus(index)
+    local row, original = entries[index], entries[index - 1]
+    if not row or not original or row[1] ~= original[1] .. "1" then return false end
+    for field = 2, 5 do
+        if row[field] ~= original[field] then return false end
+    end
+    return true
+end
+
+local function historyName(index)
+    return entries[index][1] .. (isRiskBonus(index + 1) and " (+2)" or "")
+end
+
+local function recordTarget(name, faction, points)
+    local row = { name, faction, tostring(GetServerTime()), GetRealZoneText() or "", GetSubZoneText() or "" }
+    entries[#entries + 1] = row
+    byName[key(name)] = true
+    if points == 2 then
+        local bonus = { unpack(row) }
+        bonus[1] = name .. "1"
+        entries[#entries + 1] = bonus
+        byName[key(bonus[1])] = true
+    end
+    saveLedger()
+end
+
 local function targetPrompt()
     local faction = UnitFactionGroup("player")
     if readable(faction) then
@@ -195,7 +221,7 @@ local function targetPrompt()
 end
 
 local function updateTotal()
-    if not valid then counters:SetText("Saved tally needs recovery"); return end
+    if not valid then counters:SetText("Saved fart records need recovery"); return end
     local faction = UnitFactionGroup("player")
     local opposite = readable(faction) and ({ Horde = "Alliance", Alliance = "Horde" })[faction]
     counters:SetFormattedText("%s members farted on: %d", opposite or "Opposite-faction", tally())
@@ -231,11 +257,106 @@ fart:GetFontString():SetFontObject(GameFontNormal)
 fart:HookScript("OnDisable", function(self) self:SetAlpha(0.45) end)
 fart:HookScript("OnEnable", function(self) self:SetAlpha(1) end)
 
+local abilities = addon.Abilities
+-- Ordinary buttons preserve combat use without secure action templates.
+local function abilityIcon(texture, x)
+    local button = CreateFrame("Button", nil, tallyPage)
+    button:SetSize(34, 34)
+    button:SetPoint("TOP", x, -105)
+    button.icon = button:CreateTexture(nil, "BACKGROUND")
+    button.icon:SetAllPoints()
+    button.icon:SetTexture(texture)
+    button.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+    local border = button:GetNormalTexture()
+    border:ClearAllPoints()
+    border:SetPoint("CENTER")
+    border:SetSize(60, 60)
+    button:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+    button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    button.cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+    button.cooldown:SetAllPoints()
+    button.cooldown:SetIgnoreParentAlpha(true)
+    button.cooldown:SetHideCountdownNumbers(true)
+    button.lock = button:CreateTexture(nil, "OVERLAY")
+    button.lock:SetSize(18, 18)
+    button.lock:SetPoint("CENTER")
+    button.lock:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-LOCK")
+    button.timer = button.cooldown:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    button.timer:SetPoint("CENTER")
+    return button
+end
+local risk = abilityIcon("Interface\\AddOns\\FactionFarter\\Media\\Risk.tga", -25)
+local autofart = abilityIcon("Interface\\AddOns\\FactionFarter\\Media\\Autofart.tga", 25)
+local abilityButtons = { fart = fart, risk = risk, autofart = autofart }
+local abilityNames = { fart = "Fart", risk = "Take a Risk", autofart = "Autofart" }
+local function abilityInfo(name)
+    if not FactionFarterDB then return end
+    local lines = {}
+    local function addLine(text, r, g, b, wrap)
+        lines[#lines + 1] = { text, r or 1, g or 1, b or 1, wrap }
+    end
+    local reason = abilities.BlockReason(name, tally())
+    if reason == "shart" then
+        addLine("Sharted!", 0.8, 0.5, 0.25)
+        addLine("You trusted a fart. It betrayed you.", 1, 1, 1, true)
+        addLine("All fart abilities are temporarily blocked.", 1, 1, 1, true)
+        addLine("Time remaining: " .. abilities.TimeText(abilities.Remaining("shart")), 1, 0.4, 0.2)
+    else
+        addLine(abilityNames[name])
+        if name == "risk" then addLine("/ffrisk", 0.65, 0.65, 0.65) end
+        if name == "autofart" then addLine("/ffauto", 0.65, 0.65, 0.65) end
+        if not valid then
+            addLine("Saved fart records need recovery.", 1, 0.3, 0.3)
+        elseif reason == "locked" then
+            local requirement = abilities.Requirement(name)
+            addLine("Requires " .. requirement .. " farts.", 1, 1, 1)
+            addLine(("%d / %d farts — %d more to unlock."):format(tally(), requirement, requirement - tally()), 1, 0.82, 0, true)
+        else
+            if name == "risk" then
+                addLine("Use on an uncounted opposing-faction target.", 1, 1, 1, true)
+                addLine("1 in 3 chance to earn +2 farts.", 1, 1, 1, true)
+                addLine("2 in 3 chance to shart, earning zero and blocking all fart abilities for 5 minutes.", 1, 1, 1, true)
+                addLine("30-minute cooldown.", 1, 0.82, 0)
+            elseif name == "autofart" then
+                addLine("For 30 seconds, automatically fart on uncounted opposing-faction players you mouse over.", 1, 1, 1, true)
+                addLine("1 second between successful tags.", 1, 1, 1, true)
+                addLine("1-hour cooldown.", 1, 0.82, 0)
+            else
+                addLine("Fart on your current opposing-faction target. Each player counts once.", 1, 1, 1, true)
+            end
+            if reason == "cooldown" then
+                addLine("Ready in: " .. abilities.TimeText(abilities.Remaining(name)), 1, 0.4, 0.2)
+            end
+            if name == "autofart" and abilities.Remaining("autofartActive") > 0 then
+                addLine("Active: " .. abilities.TimeText(abilities.Remaining("autofartActive")) .. " remaining.", 0.6, 1, 0.3)
+            end
+        end
+    end
+    return lines
+end
+local function abilityTooltip(button, name)
+    local lines = abilityInfo(name)
+    if not lines then return end
+    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    for index, line in ipairs(lines) do
+        if index == 1 then GameTooltip:SetText(unpack(line)) else GameTooltip:AddLine(unpack(line)) end
+    end
+    GameTooltip:Show()
+end
+for name, button in pairs(abilityButtons) do
+    button:SetMotionScriptsWhileDisabled(true)
+    button:HookScript("OnEnter", function(self) abilityTooltip(self, name) end)
+    button:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    if name ~= "fart" then button:SetAlpha(0.45); button:Disable() end
+end
+
 local function alreadyRecorded(guid, name)
     local db = FactionFarterDB
     return byName[key(name)] or (db.recordedPlayers and db.recordedPlayers[guid])
 end
 
+local showingLockout = false
 local function refresh()
     if not panel:IsShown() then return end
     local guid, name = candidate("target")
@@ -243,10 +364,54 @@ local function refresh()
     if name then SetPortraitTexture(targetPortrait, "target") end
     targetPortrait:SetShown(name ~= nil)
     local recorded = name and alreadyRecorded(guid, name)
-    fart:SetEnabled(name ~= nil or InCombatLockdown())
+    local lockedOut = abilities.Remaining("shart") > 0
+    fart:SetEnabled(not lockedOut and (name ~= nil or InCombatLockdown()))
     fart:SetText(recorded and "Fart Again" or "Fart")
+    for ability, button in pairs(abilityButtons) do
+        if ability ~= "fart" then
+            local active = ability == "autofart" and abilities.Remaining("autofartActive") or 0
+            local timer = active > 0 and "autofartActive" or ability
+            local remaining = abilities.Remaining(timer)
+            local duration = timer == "autofartActive" and 30 or (ability == "risk" and 1800 or 3600)
+            local expiry = FactionFarterDB.abilityTimers[timer]
+            if button.timerExpiry ~= expiry or button.timerKind ~= timer then
+                button.timerExpiry, button.timerKind = expiry, timer
+                button.cooldown:SetReverse(active > 0 and not lockedOut)
+                if remaining > 0 then button.cooldown:SetCooldown(GetTime() + remaining - duration, duration)
+                else button.cooldown:Clear() end
+            end
+            button.timer:SetText(remaining > 0 and (remaining >= 60 and math.ceil(remaining / 60) .. "m" or math.ceil(remaining) .. "s") or "")
+            local locked = tally() < abilities.Requirement(ability)
+            button.lock:SetShown(locked)
+            button.icon:SetDesaturated(locked or lockedOut or (remaining > 0 and active == 0))
+        end
+        if ability == "risk" then
+            local enabled = valid and name ~= nil and not recorded and not abilities.BlockReason("risk", tally())
+            button:SetEnabled(not not enabled)
+            button:SetAlpha(enabled and 1 or 0.45)
+        elseif ability == "autofart" then
+            local enabled = valid and not abilities.BlockReason("autofart", tally())
+            button:SetEnabled(not not enabled)
+            button:SetAlpha(enabled and 1 or 0.45)
+        end
+        if GameTooltip:IsOwned(button) then abilityTooltip(button, ability) end
+    end
+    if lockedOut then
+        status:SetText("Sharted! " .. abilities.TimeText(abilities.Remaining("shart")))
+    elseif showingLockout then
+        status:SetText("")
+    end
+    showingLockout = lockedOut
     updateTotal()
 end
+
+local abilityRefreshElapsed = 0
+panel:HookScript("OnUpdate", function(_, elapsed)
+    abilityRefreshElapsed = abilityRefreshElapsed + elapsed
+    if abilityRefreshElapsed < 0.25 then return end
+    abilityRefreshElapsed = 0
+    refresh()
+end)
 
 local settings = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
 settings:SetSize(760, 490)
@@ -339,7 +504,7 @@ local function section(label, y)
 end
 section("Fart sound", -12)
 
-local soundNames = { "Wet Fart", "Quick Fart", "Long Fart" }
+local soundNames = { "Wet Fart", "Quick Fart", "Long Fart", "Squeaky Fart", "Duty Time", "Deep Fart" }
 
 local function selectedSound()
     local db = FactionFarterDB
@@ -352,6 +517,12 @@ local function playFartSound(style)
         style = style or selectedSound()
         local file = ("Interface\\AddOns\\FactionFarter\\Sounds\\Recorded%d.mp3"):format(style)
         PlaySoundFile(file, "SFX")
+    end
+end
+
+local function playShartSound()
+    if FactionFarterDB and not FactionFarterDB.soundMuted then
+        PlaySoundFile("Interface\\AddOns\\FactionFarter\\Sounds\\Shart.mp3", "SFX")
     end
 end
 
@@ -424,6 +595,19 @@ local function showNotification(sender, style, partyTarget)
     if notificationTimer then notificationTimer:Cancel() end
     notification:Show()
     if not partyTarget then playFartSound(style) end
+    if placingAlert then return end
+    notificationTimer = C_Timer.NewTimer(3, function()
+        notification:Hide()
+        notificationTimer = nil
+    end)
+end
+
+local function showAbilityNotice(message)
+    notificationText:SetText(message)
+    notificationText:SetPoint("CENTER", 0, 0)
+    senderPortrait:Hide()
+    if notificationTimer then notificationTimer:Cancel() end
+    notification:Show()
     if placingAlert then return end
     notificationTimer = C_Timer.NewTimer(3, function()
         notification:Hide()
@@ -513,7 +697,7 @@ popupSize:SetScript("OnValueChanged", function(_, value)
     applyPopupFontSize(size)
 end)
 
-local colorSwatch = settingsButton("", 32, 18, -230, function()
+local colorSwatch = settingsButton("Color", 88, 0, -185, function()
     local color = FactionFarterDB.alertColor
     local function update(r, g, b)
         FactionFarterDB.alertColor = { r, g, b }
@@ -526,13 +710,15 @@ local colorSwatch = settingsButton("", 32, 18, -230, function()
     })
 end)
 swatchFill = colorSwatch:CreateTexture(nil, "ARTWORK")
-swatchFill:SetPoint("TOPLEFT", 5, -5)
-swatchFill:SetPoint("BOTTOMRIGHT", -5, 5)
-local colorLabel = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-colorLabel:SetPoint("LEFT", colorSwatch, "RIGHT", 8, 0)
-colorLabel:SetText("Popup text color")
+swatchFill:SetSize(12, 12)
+swatchFill:SetPoint("RIGHT", -5, 0)
+local popupColorText = colorSwatch:GetFontString()
+popupColorText:ClearAllPoints()
+popupColorText:SetPoint("LEFT", colorSwatch, "LEFT", 5, 0)
+popupColorText:SetPoint("RIGHT", swatchFill, "LEFT", -5, 0)
+popupColorText:SetJustifyH("CENTER")
 colorSwatch:ClearAllPoints()
-colorSwatch:SetPoint("TOP", -(colorLabel:GetStringWidth() + 8) / 2, -185)
+colorSwatch:SetPoint("TOP", 0, -185)
 
 settingsButton("Test popup", 120, 350, -86, function() showNotification() end)
 
@@ -549,12 +735,22 @@ end)
 settingsContent = settingsPages[3]
 local graphicsControls = {}
 local graphicsEnabled = CreateFrame("CheckButton", nil, settingsContent, "UICheckButtonTemplate")
-graphicsEnabled:SetPoint("TOP", -60, 0)
+graphicsEnabled:SetPoint("TOPLEFT", 35, 0)
 local graphicsLabel = graphicsEnabled:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 graphicsLabel:SetPoint("LEFT", graphicsEnabled, "RIGHT", 4, 0)
 graphicsLabel:SetText("Show farticles")
 graphicsEnabled:SetScript("OnClick", function(self)
     FactionFarterDB.graphics.enabled = not not self:GetChecked()
+    addon.RefreshShartEffect()
+end)
+
+local partyGraphics = CreateFrame("CheckButton", nil, settingsContent, "UICheckButtonTemplate")
+partyGraphics:SetPoint("TOPLEFT", 280, 0)
+local partyGraphicsLabel = partyGraphics:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+partyGraphicsLabel:SetPoint("LEFT", partyGraphics, "RIGHT", 4, 0)
+partyGraphicsLabel:SetText("Show party farticles")
+partyGraphics:SetScript("OnClick", function(self)
+    FactionFarterDB.graphics.partyEnabled = not not self:GetChecked()
 end)
 
 local function effectSettings(kind, title, y)
@@ -566,8 +762,8 @@ local function effectSettings(kind, title, y)
     dropdown:SetPoint("TOPLEFT", 160, y)
     dropdown:SetupMenu(function(_, root)
         local effect = FactionFarterDB.graphics[kind]
-        for _, style in ipairs({ "cloud", "jet" }) do
-            root:CreateRadio(style == "cloud" and "Classic gas cloud" or "Classic gas jet",
+        for _, style in ipairs({ "cloud", "jet", "confetti" }) do
+            root:CreateRadio(addon.FarticleStyles[style],
                 function() return effect.style == style end,
                 function() effect.style = style end)
         end
@@ -576,7 +772,7 @@ local function effectSettings(kind, title, y)
         local color = FactionFarterDB.graphics[kind].color
         graphicsControls[kind].fill:SetColorTexture(color[1], color[2], color[3], 1)
     end
-    local swatch = settingsButton("Colour", 88, 360, y, function()
+    local swatch = settingsButton("Color", 88, 360, y, function()
         local effect = FactionFarterDB.graphics[kind]
         local original = { unpack(effect.color) }
         ColorPickerFrame:SetupColorPickerAndShow({
@@ -594,6 +790,11 @@ local function effectSettings(kind, title, y)
     local fill = swatch:CreateTexture(nil, "OVERLAY")
     fill:SetSize(12, 12)
     fill:SetPoint("RIGHT", -5, 0)
+    local colorText = swatch:GetFontString()
+    colorText:ClearAllPoints()
+    colorText:SetPoint("LEFT", swatch, "LEFT", 5, 0)
+    colorText:SetPoint("RIGHT", fill, "LEFT", -5, 0)
+    colorText:SetJustifyH("CENTER")
     graphicsControls[kind] = { dropdown = dropdown, fill = fill, sliders = {} }
     settingsButton("Reset", 90, 458, y, function()
         FactionFarterDB.graphics[kind].color = { 0.3, 0.8, 0.15 }
@@ -696,7 +897,11 @@ local function refreshHistory()
     if not historyPanel:IsVisible() then return end
     historyTitle:SetText(not valid and "History unavailable" or (#entries == 0 and "No recorded players yet" or "History"))
     if not valid then return end
-    for position = 1, #entries do
+    local visible = {}
+    for index = #entries, 1, -1 do
+        if not isRiskBonus(index) then visible[#visible + 1] = index end
+    end
+    for position, index in ipairs(visible) do
         local row = rows[position]
         if not row then
             row = CreateFrame("Button", nil, list)
@@ -720,10 +925,12 @@ local function refreshHistory()
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             rows[position] = row
         end
-        row.entry = entries[#entries - position + 1]
-        row:SetText(row.entry[1])
+        row.entry = entries[index]
+        row:SetText(historyName(index))
+        row:Show()
     end
-    list:SetHeight(math.max(1, #entries * 22))
+    for position = #visible + 1, #rows do rows[position]:Hide() end
+    list:SetHeight(math.max(1, #visible * 22))
 end
 
 historyPanel:SetScript("OnShow", refreshHistory)
@@ -749,8 +956,94 @@ tallyTab:SetScript("OnClick", function() selectPage(false) end)
 historyTab:SetScript("OnClick", function() selectPage(true) end)
 selectPage(false)
 
+local function completeFart(guid, name, targetFaction, points)
+    if name and valid and not alreadyRecorded(guid, name) then
+        recordTarget(name, targetFaction, points)
+        refreshHistory()
+    end
+    refresh()
+    local style = selectedSound()
+    playFartSound(style)
+    local visual = addon.PlayFarticle("jet")
+    local source = UnitGUID("player")
+    if guid and name and readable(source) and source and IsInGroup() and not IsInRaid() then
+        local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
+        pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("party:%s:%s:%s"):format(source, guid, name), channel)
+        if visual then
+            pcall(C_ChatInfo.SendAddonMessage, signalPrefix,
+                ("partyFX:%s:%s:%.6f:%.6f:%.6f:%.2f:%.2f:%.2f"):format(source, visual.style,
+                    visual.color[1], visual.color[2], visual.color[3], visual.size, visual.opacity, visual.duration), channel)
+        end
+        -- Keep the original text packet readable by older clients.
+        pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("partySound:%s:%s:%d"):format(source, guid, style), channel)
+    end
+    local faction = UnitFactionGroup("player")
+    local messages = readable(faction) and factionMessages[faction]
+    if not messages then return end
+    status:SetText(messages[math.random(#messages)])
+    pcall(DoEmote, factionEmotes[faction])
+end
+
+local autofartDriver = CreateFrame("Frame")
+local nextAutofartTag, autofartElapsed, autofartErrorReported = 0, 0, false
+
+local function stopAutofart(announce)
+    local timers = FactionFarterDB.abilityTimers
+    timers.autofartActive, timers.autofartNextTag = 0, 0
+    autofartDriver:SetScript("OnUpdate", nil)
+    autofartDriver:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
+    if announce then showAbilityNotice("Autofart finished.") end
+    refresh()
+end
+
+local function attemptAutofart()
+    if abilities.Remaining("shart") > 0 or not valid then
+        stopAutofart(false)
+        return
+    end
+    if abilities.Remaining("autofartActive") <= 0 then
+        stopAutofart(true)
+        return
+    end
+    if GetTime() < nextAutofartTag then return end
+    local guid, name, faction = candidate("mouseover")
+    if not name or alreadyRecorded(guid, name) then return end
+    -- Like Passing Wind, address the live mouseover token directly.
+    -- The legacy emote return value is not used as a success flag.
+    local ok = pcall(DoEmote, "FART", "mouseover")
+    if not ok then
+        nextAutofartTag = GetTime() + 1
+        if not autofartErrorReported then
+            autofartErrorReported = true
+            print("Faction Farter: Autofart could not call the emote. No fart was counted.")
+        end
+        return
+    end
+    nextAutofartTag = GetTime() + 1
+    FactionFarterDB.abilityTimers.autofartNextTag = GetServerTime() + 1
+    completeFart(guid, name, faction, 1)
+end
+
+local function startAutofartDriver()
+    nextAutofartTag = GetTime() + abilities.Remaining("autofartNextTag")
+    autofartElapsed, autofartErrorReported = 0, false
+    autofartDriver:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    autofartDriver:SetScript("OnEvent", attemptAutofart)
+    autofartDriver:SetScript("OnUpdate", function(_, elapsed)
+        autofartElapsed = autofartElapsed + elapsed
+        if autofartElapsed < 0.1 then return end
+        autofartElapsed = 0
+        attemptAutofart()
+    end)
+end
+
 function FactionFarter_PerformFart()
     if not FactionFarterDB then return end
+    if abilities.Remaining("shart") > 0 then
+        UIErrorsFrame:AddMessage("Sharted! " .. abilities.TimeText(abilities.Remaining("shart")) .. " remaining.", 1, 0.4, 0.2)
+        refresh()
+        return
+    end
     local guid, name, targetFaction = candidate("target")
     local targetExists = UnitExists("target")
     if not name and (not InCombatLockdown() or (readable(targetExists) and not targetExists)) then
@@ -760,28 +1053,7 @@ function FactionFarter_PerformFart()
     end
     local ok = pcall(DoEmote, "fart")
     if ok then
-        if name and valid and not alreadyRecorded(guid, name) then
-            byName[key(name)] = true
-            entries[#entries + 1] = { name, targetFaction, tostring(GetServerTime()), GetRealZoneText() or "", GetSubZoneText() or "" }
-            saveLedger()
-            refreshHistory()
-        end
-        refresh()
-        local style = selectedSound()
-        playFartSound(style)
-        addon.PlayFarticle("jet")
-        local source = UnitGUID("player")
-        if guid and name and readable(source) and source and IsInGroup() and not IsInRaid() then
-            local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
-            pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("party:%s:%s:%s"):format(source, guid, name), channel)
-            -- Keep the original text packet readable by older clients.
-            pcall(C_ChatInfo.SendAddonMessage, signalPrefix, ("partySound:%s:%s:%d"):format(source, guid, style), channel)
-        end
-        local faction = UnitFactionGroup("player")
-        local messages = readable(faction) and factionMessages[faction]
-        if not messages then return end
-        status:SetText(messages[math.random(#messages)])
-        pcall(DoEmote, factionEmotes[faction])
+        completeFart(guid, name, targetFaction, 1)
     else
         status:SetText("The client rejected the emote.")
     end
@@ -790,6 +1062,71 @@ fart:SetScript("OnClick", FactionFarter_PerformFart)
 
 SLASH_FACTIONFARTERFART1 = "/fffart"
 SlashCmdList.FACTIONFARTERFART = FactionFarter_PerformFart
+
+local function prepareAbility(name)
+    local lines = abilityInfo(name)
+    if not lines then return end
+    for _, line in ipairs(lines) do print(line[1]) end
+    refresh()
+end
+function FactionFarter_PerformRisk()
+    if not FactionFarterDB then return end
+    if not valid or abilities.BlockReason("risk", tally()) then
+        prepareAbility("risk")
+        return
+    end
+    local guid, name, faction = candidate("target")
+    if not name or alreadyRecorded(guid, name) then
+        print("Faction Farter: Take a Risk needs an uncounted opposing-faction target.")
+        return
+    end
+    local success = math.random(3) == 1
+    if success then
+        local ok = pcall(DoEmote, "fart")
+        if not ok then
+            print("Faction Farter: The client rejected the emote.")
+            return
+        end
+    end
+    abilities.StartCooldown("risk")
+    if success then
+        completeFart(guid, name, faction, 2)
+        showAbilityNotice("Risk paid off! +2 farts")
+    else
+        abilities.StartShartLockout()
+        stopAutofart(false)
+        addon.RefreshShartEffect()
+        playShartSound()
+        showAbilityNotice("Sharted! Abilities blocked for 5 minutes.")
+        if IsInGroup() and not IsInRaid() then
+            local ownGUID = UnitGUID("player")
+            if readable(ownGUID) and ownGUID then
+                local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or "PARTY"
+                pcall(C_ChatInfo.SendAddonMessage, signalPrefix, "shart:" .. ownGUID, channel)
+            end
+        end
+    end
+    refresh()
+end
+
+function FactionFarter_ActivateAutofart()
+    if not FactionFarterDB then return end
+    if not valid or abilities.BlockReason("autofart", tally()) then
+        prepareAbility("autofart")
+        return
+    end
+    abilities.StartAutofart()
+    startAutofartDriver()
+    showAbilityNotice("Autofart activated — 30 seconds!")
+    refresh()
+end
+
+risk:SetScript("OnClick", FactionFarter_PerformRisk)
+autofart:SetScript("OnClick", FactionFarter_ActivateAutofart)
+SLASH_FACTIONFARTERRISK1 = "/ffrisk"
+SlashCmdList.FACTIONFARTERRISK = FactionFarter_PerformRisk
+SLASH_FACTIONFARTERAUTO1 = "/ffauto"
+SlashCmdList.FACTIONFARTERAUTO = FactionFarter_ActivateAutofart
 
 local function toggle()
     if not FactionFarterDB then return end
@@ -880,9 +1217,44 @@ SlashCmdList.FACTIONFARTERTEST = function() showNotification() end
 local function receiveSignal(prefix, message, channel, sender)
     if readable(prefix) and prefix == signalPrefix and readable(channel)
         and (channel == "PARTY" or channel == "INSTANCE_CHAT")
-        and FactionFarterDB and FactionFarterDB.partyAlerts and not IsInRaid()
+        and FactionFarterDB and not IsInRaid()
         and readable(message) and type(message) == "string"
         and readable(sender) and type(sender) == "string" and sender ~= "" then
+        if message:sub(1, 8) == "partyFX:" then
+            if not FactionFarterDB.graphics.partyEnabled or #message > 200 then return end
+            local source, style, r, g, b, size, opacity, duration = message:match("^partyFX:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)$")
+            if not addon.FarticleStyles[style] then return end
+            local values = { tonumber(r), tonumber(g), tonumber(b), tonumber(size), tonumber(opacity), tonumber(duration) }
+            local maximums = { 1, 1, 1, 200, 100, 8 }
+            for index = 1, 6 do
+                local value = values[index]
+                if not value or value ~= value or value < 0 or value > maximums[index] then return end
+                if index >= 4 and value == 0 then return end
+            end
+            for index = 1, 4 do
+                local unit = "party" .. index
+                local guid = UnitGUID(unit)
+                if readable(guid) and guid and guid == source then
+                    addon.PlayPartyFarticle(unit, { style = style, color = { values[1], values[2], values[3] },
+                        size = values[4], opacity = values[5], duration = values[6] })
+                    return
+                end
+            end
+            return
+        end
+        if not FactionFarterDB.partyAlerts then return end
+        local sharter = message:match("^shart:([^:]+)$")
+        if sharter then
+            for index = 1, 4 do
+                local unitGUID = UnitGUID("party" .. index)
+                if readable(unitGUID) and unitGUID == sharter then
+                    showAbilityNotice(sender .. " sharted!")
+                    playShartSound()
+                    return
+                end
+            end
+            return
+        end
         local source, target, name = message:match("^party:([^:]+):([^:]+):([^:]+)$")
         local ownGUID = UnitGUID("player")
         if name and readable(ownGUID) and ownGUID and source ~= ownGUID and target ~= ownGUID then
@@ -948,10 +1320,13 @@ SlashCmdList.FACTIONFARTERHISTORY = function(input)
     local count = input == "" and 25 or tonumber(input:match("^%d+$"))
     if not count or count < 1 then print("Usage: /ffhistory [1-25]"); return end
     local rows = { { "Target", "Date and time", "Zone", "Subzone" } }
-    for index = #entries, math.max(1, #entries - math.min(count, 25) + 1), -1 do
-        local row = entries[index]
-        local stamp = tonumber(row[3])
-        rows[#rows + 1] = { row[1], stamp and date("%Y-%m-%d %H:%M", stamp) or "", row[4], row[5] }
+    for index = #entries, 1, -1 do
+        if not isRiskBonus(index) then
+            local row = entries[index]
+            local stamp = tonumber(row[3])
+            rows[#rows + 1] = { historyName(index), stamp and date("%Y-%m-%d %H:%M", stamp) or "", row[4], row[5] }
+            if #rows - 1 >= math.min(count, 25) then break end
+        end
     end
     if #rows == 1 then print("Faction Farter: No recorded players yet."); return end
     historyExport:Show()
@@ -1092,27 +1467,29 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("UPDATE_BINDINGS")
-events:SetScript("OnEvent", function(self, event, addon, message, channel, sender)
+events:SetScript("OnEvent", function(self, event, argument, message, channel, sender)
     if event == "ADDON_LOADED" then
-        if addon ~= "FactionFarter" then return end
+        if argument ~= "FactionFarter" then return end
         FactionFarterDB = FactionFarterDB or { lifetime = 0 }
         local db = FactionFarterDB
+        abilities.Initialize(db)
         db.graphics = db.graphics or {}
         if db.graphics.enabled == nil then db.graphics.enabled = true end
         for _, kind in ipairs({ "jet", "cloud" }) do
             local effect = db.graphics[kind] or {}
             db.graphics[kind] = effect
-            if effect.style ~= "jet" and effect.style ~= "cloud" then effect.style = "cloud" end
+            if not addon.FarticleStyles[effect.style] then effect.style = "cloud" end
             effect.color = effect.color or { 0.3, 0.8, 0.15 }
             effect.size = effect.size or 100
             effect.opacity = effect.opacity or 65
             effect.duration = effect.duration or 2
         end
+        addon.RefreshShartEffect()
         if db.settingsX and db.settingsY then
             settings:ClearAllPoints()
             settings:SetPoint("CENTER", UIParent, "CENTER", db.settingsX, db.settingsY)
         end
-        db.soundStyle = db.soundStyle or 1
+        db.soundStyle = soundNames[db.soundStyle] and db.soundStyle or 1
         soundChoice:GenerateMenu()
         db.alertColor = db.alertColor or { 1, 0.82, 0 }
         db.alertFontSize = math.max(12, math.min(32, tonumber(db.alertFontSize) or popupDefaultSize))
@@ -1124,23 +1501,29 @@ events:SetScript("OnEvent", function(self, event, addon, message, channel, sende
         end
         mute:SetChecked(db.soundMuted)
         partyAlerts:SetChecked(db.partyAlerts)
+        partyGraphics:SetChecked(db.graphics.partyEnabled)
         if db.windowX and db.windowY then
             panel:ClearAllPoints()
             panel:SetPoint("CENTER", UIParent, "CENTER", db.windowX, db.windowY)
         end
         valid = loadLedger(db)
         if not valid then print("Faction Farter: Saved data failed validation and was preserved.") end
+        if valid and abilities.Remaining("shart") == 0 and abilities.Remaining("autofartActive") > 0 then
+            startAutofartDriver()
+        else
+            db.abilityTimers.autofartActive, db.abilityTimers.autofartNextTag = 0, 0
+        end
         placeMinimapButton(FactionFarterDB.minimapAngle or math.pi / 4)
         C_ChatInfo.RegisterAddonMessagePrefix(signalPrefix)
         self:UnregisterEvent(event)
     elseif event == "CHAT_MSG_ADDON" then
-        receiveSignal(addon, message, channel, sender)
+        receiveSignal(argument, message, channel, sender)
         return
     elseif event == "CHAT_MSG_TEXT_EMOTE" then
-        receiveFartEmote(addon, message)
+        receiveFartEmote(argument, message)
         return
     elseif event == "UNIT_PORTRAIT_UPDATE" then
-        if addon ~= "target" then return end
+        if argument ~= "target" then return end
     elseif event == "PLAYER_TARGET_CHANGED" then
         status:SetText("")
     elseif event == "PLAYER_LOGIN" or event == "UPDATE_BINDINGS" then
